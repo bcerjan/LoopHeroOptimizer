@@ -1,0 +1,6 @@
+# Ignore binary files:
+*.out
+*.exe
+
+# Unused for the moment
+progressbar.c
