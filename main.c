@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 
 #define MAX_ROWS 20
 #define MAX_COLS 20
@@ -26,8 +27,11 @@ enum Landscape {LHO_MEADOW = 0, LHO_THICKET = 1, LHO_MOUNTAIN = 2,
                 LHO_SUBURB = 3};
 
 // Values for each type of landscape tile
-enum Values {LHO_MEADOWVAL = 3, LHO_THICKETVAL = 2, LHO_MOUNTAINVAL = 5,
+enum Values {LHO_MEADOWVAL = 3, LHO_THICKETVAL = 2, LHO_MOUNTAINVAL = 6,
              LHO_SUBURBVAL = 1};
+
+enum ZigZag {LHO_UP, LHO_DOWN, LHO_LEFT, LHO_RIGHT};
+
 
 // Struct to hold locations and linear index of the "head" of the river
 struct River {
@@ -38,6 +42,7 @@ struct River {
 
 struct Tile {
   enum Terrain type; // -1 is empty, 0 is river, 1 is landscape
+  int numAdjRivers;
 };
 
 struct Grid {
@@ -57,6 +62,33 @@ static int landValue; // value for a single landscape tile
 static int maxTileVal;
 
 static int bestVal = -1;
+
+// Function to set static land properties:
+void init_landscape(int choice)
+{
+  switch (choice) {
+    case 0: // Meadow
+      landChoice = LHO_MEADOW;
+      landValue = LHO_MEADOWVAL;
+      maxTileVal = 3*LHO_MEADOWVAL;
+      break;
+    case 1: // Thicket
+      landChoice = LHO_THICKET;
+      landValue = LHO_THICKETVAL;
+      maxTileVal = 3*LHO_THICKETVAL;
+      break;
+    case 2: // Mountain
+      landChoice = LHO_MOUNTAIN;
+      landValue = LHO_MOUNTAINVAL;
+      maxTileVal = 4*LHO_MOUNTAINVAL;
+      break;
+    case 3: // Suburb
+      landChoice = LHO_SUBURB;
+      landValue = LHO_SUBURBVAL;
+      maxTileVal = 3*LHO_SUBURBVAL;
+      break;
+  }
+}
 
 // function to return row for a given linear index
 int get_row_idx(int linIndex)
@@ -521,6 +553,21 @@ void print_grid(struct Grid grid)
 {
   int i,j;
   enum Terrain type;
+  char label[4];
+
+  // Speficy landscape string to match which type of thing we optimized:
+  switch (landChoice) {
+    case LHO_MEADOW:
+    case LHO_MOUNTAIN:
+      strcpy(label, " M ");
+      break;
+    case LHO_SUBURB:
+      strcpy(label, " S ");
+      break;
+    case LHO_THICKET:
+      strcpy(label, " T ");
+      break;
+  }
 
   printf("\n  ");
   for (i = 0; i < numCols; i++) {
@@ -540,7 +587,7 @@ void print_grid(struct Grid grid)
           printf(" R ");
           break;
         case LHO_LANDSCAPE:
-          printf(" L ");
+          printf("%s", label);
           break;
       } // switch
     } // iForLoop
@@ -554,7 +601,97 @@ void print_grid(struct Grid grid)
   printf("\n");
 }
 
+/*
+  Sets initial grid used in recursion using some heuristics to start at a
+  higher "current best"
+  Starts river at top left and tries to draw a zig-zag to the bottom then back
+  up, repeating if necessary. The rest is filled with landscape tiles, minus
+  one tile to enter recursion once
+*/
+
+void heuristic_grid(struct Grid *grid)
+{
+  int i,j;
+
+
+  for (i = 0; i < numRows; i++) {
+    for (j = 0; j < numCols; j++) {
+      grid->grid[i][j].type = LHO_LANDSCAPE; // Set whole grid to landscape
+    }
+  }
+
+  i = 0;
+  j = 0;
+  bool done = false;
+  bool firstLoop = true;
+  int zigx = 0, zigy = 0;
+  enum ZigZag zigLocalDir = LHO_RIGHT; // always start top left, so first move is to the right
+  enum ZigZag zigNextDir = LHO_DOWN; // start top left and overall go down to the right
+  enum ZigZag zigOverallDir = LHO_DOWN;
+
+  while (!done) {
+
+    grid->grid[i][j].type = LHO_RIVER;
+
+    if (j == numCols - 1) {
+      done = true;
+    }
+
+    switch (zigLocalDir) {
+      case LHO_RIGHT:
+        j++;
+        zigLocalDir = zigNextDir;
+        if (zigOverallDir == LHO_DOWN) {
+          zigNextDir = LHO_DOWN;
+        } else {
+          zigNextDir = LHO_UP;
+        }
+        break;
+      case LHO_LEFT:
+        j--;
+        zigLocalDir = zigNextDir;
+        if (zigOverallDir == LHO_DOWN) {
+          zigNextDir = LHO_DOWN;
+        } else {
+          zigNextDir = LHO_UP;
+        }
+        break;
+      case LHO_DOWN: // these are "backwards" as top left is (0,0)
+        i++;
+        zigLocalDir = LHO_RIGHT;
+        break;
+      case LHO_UP:
+        i--;
+        zigLocalDir = LHO_RIGHT;
+        break;
+    }
+
+    if (i == (numRows)) {
+      zigOverallDir = LHO_UP;
+      //zigLocalDir = LHO_RIGHT;
+      zigNextDir = LHO_UP;
+      i -= 2;
+      //j++;
+    }
+
+    if (i == -1 && !firstLoop) {
+      zigOverallDir = LHO_DOWN;
+      //zigLocalDir = LHO_RIGHT;
+      zigNextDir = LHO_DOWN;
+      i += 2;
+      //j++;
+    }
+
+    firstLoop = false;
+
+  }
+
+  return;
+}
+
+
 static int recursion_depth = 0;
+static bool initial_recursion = true;
 
 // Function to fill the remainder of a given grid, designed to be recursed
 struct Grid * recurse_grid(struct Grid *grid)
@@ -591,6 +728,14 @@ struct Grid * recurse_grid(struct Grid *grid)
 
   struct Grid tempGrid;
   allocate_grid(&tempGrid);
+
+  if (initial_recursion) {
+    heuristic_grid(&tempGrid);
+    currentBest = val_calc(tempGrid);
+    bestVal =  currentBest;
+    copy_grid(&bestGrid, &tempGrid);
+    initial_recursion = false;
+  }
 
   for (i = 0; i < maxLen; i++) {
     if (chk_loc(i, thisGrid)) {
@@ -645,28 +790,40 @@ int main()
 
   int rows;
   int cols;
+  int land;
 
-  // Get these as inputs, rather than defining here
+  // Get input for optimization
+  /*printf(" Enter information about the grid to optimize...\n\n How many rows?\n  ");
+  scanf("%d", &rows);
+  printf(" How many columns?\n  ");
+  scanf("%d", &cols);
+  printf(" What type of landscape tile?\n (0 = meadow, 1 = thicket, 2 = mountain, 3 = suburb):\n  ");
+  scanf("%d", &land);*/
+
   rows = 3;
   cols = 3;
+  land = 1;
+
+  init_landscape(land);
+
+  /*rows = 3;
+  cols = 3;*/
 
   numRows = rows;
   numCols = cols;
-  landChoice = LHO_MOUNTAIN;
-  landValue = LHO_MOUNTAINVAL;
-  maxTileVal = landValue * 9;
+
 
   // allocate memory for our grid
   struct Grid grid;
   allocate_grid(&grid);
-
-  printf("starting recursion...\n");
+  //heuristic_grid(&grid);
+  printf("\n starting recursion...\n");
   recurse_grid(&grid);
   print_grid(grid);
 
   int val;
   val = val_calc(grid);
-  printf("Value of grid: %d\n", val);
+  printf(" Value of grid: %d\n", val);
 
   free_grid(&grid);
   return 0;
