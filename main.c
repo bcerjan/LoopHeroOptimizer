@@ -423,9 +423,10 @@ bool add_river(int linIndex, struct Grid *grid)
       grid->full = true;
     }
 
+    return true;
   }
 
-  return true;
+  return false; // Shouldn't get here, but just in case
 }
 
 
@@ -738,13 +739,15 @@ struct Grid * recurse_grid(struct Grid *grid)
   }
 
   for (i = 0; i < maxLen; i++) {
-    if (chk_loc(i, thisGrid)) {
       for (j = 0; j < 2; j++) {
         if (j == 0) {
           bool river_added = add_river(i, &thisGrid);
+          //printf("added river at i: %d\n", i);
           if (river_added) {
+            //printf("Actually added river...\n");
             copy_grid(&tempGrid, &thisGrid);
             remove_terrain(i, &thisGrid);
+            recursion_depth++;
             recurse_grid(&tempGrid);
             val = val_calc(tempGrid);
             if (val > currentBest) {
@@ -771,7 +774,6 @@ struct Grid * recurse_grid(struct Grid *grid)
           }
         } /* ifElse */
       } /* jForLoop */
-    } /* if chk_loc */
   } /* iForLoop */
 
 
