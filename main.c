@@ -19,6 +19,7 @@
 
 #define MAX_ROWS 20
 #define MAX_COLS 20
+
 // For overall what is in a tile
 enum Terrain {LHO_EMPTY = -1, LHO_RIVER = 0, LHO_LANDSCAPE = 1};
 
@@ -43,6 +44,7 @@ struct River {
 struct Tile {
   enum Terrain type; // -1 is empty, 0 is river, 1 is landscape
   int numAdjRivers;
+  int numAdjLands;
 };
 
 struct Grid {
@@ -57,7 +59,7 @@ struct Grid {
 static int numRows;
 static int numCols;
 
-static enum Landscape landChoice; // 0 = meadow, 1 = thicket, 2 = mountain, 3 = suburb
+static enum Landscape landChoice;
 static int landValue; // value for a single landscape tile
 static int maxTileVal;
 
@@ -119,9 +121,11 @@ void allocate_grid(struct Grid *grid)
   int i,j;
   grid->grid = malloc(numRows * sizeof(grid->grid));
   for (i = 0; i < numRows; i++) {
-    grid->grid[i] = malloc(numCols * sizeof(grid->grid));
+    grid->grid[i] = malloc(numCols * sizeof(struct Tile));
     for (j = 0; j < numCols; j ++) {
       grid->grid[i][j].type = LHO_EMPTY;
+      grid->grid[i][j].numAdjRivers = 0;
+      grid->grid[i][j].numAdjLands = 0;
     }
   }
 
@@ -132,6 +136,7 @@ void allocate_grid(struct Grid *grid)
   grid->numFilledTiles = 0;
   grid->maxTiles = numRows * numCols;
   grid->val = -1;
+
 
   return;
 }
@@ -166,155 +171,6 @@ void copy_grid(struct Grid *dupGrid, struct Grid *inGrid)
   }
 }
 
-
-// Function that returns the linear indices of adjacent tiles to the current one
-// Negative return indicates outside the matrix
-// Does not check for filled status of neighbors
-void get_adj_locs(int linIndex, int loc[4]) // always of length 4
-{
-  int i;
-
-  loc[0] = linIndex + 1; // Right
-  loc[1] = linIndex - 1; // Left
-  loc[2] = linIndex - numCols; // Up
-  loc[3] = linIndex + numCols; // Down
-
-  for (i = 0; i < 4; i++) {
-    if (loc[i] < 0 || loc[i] > numRows * numCols - 1) {
-      loc[i] = -1; // outside the grid
-    }
-  }
-
-  return;
-}
-
-// Counts number of adjacent rivers for calculating score
-// as this is designed to be used with a final grid, takes row, col inputs
-// rather than linear index
-int count_adj_rivers(int i, int j, struct Grid grid)
-{
-  int count = 0;
-
-  // If's are to prevent looking outside our matrix
-  if (i > 0) {
-    if (grid.grid[i-1][j].type == LHO_RIVER) { count++; }
-  }
-
-  if (i < numRows - 1) {
-    if (grid.grid[i+1][j].type == LHO_RIVER) { count++; }
-  }
-
-  if (j > 0) {
-    if (grid.grid[i][j-1].type == LHO_RIVER) { count++; }
-  }
-
-  if (j < numCols - 1) {
-    if (grid.grid[i][j+1].type == LHO_RIVER) { count++; }
-  }
-
-
-  return count;
-}
-
-// Counts number of adjacent landscapes for calculating score
-// as this is designed to be used with a final grid, takes row, col inputs
-// rather than linear index
-int count_adj_lands(int i, int j, struct Grid grid)
-{
-  int count = 0;
-
-  if (i > 0) {
-    if (grid.grid[i-1][j].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  if (i < numRows - 1) {
-    if (grid.grid[i+1][j].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  if (j > 0) {
-    if (grid.grid[i][j-1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  if (j < numCols - 1) {
-    if (grid.grid[i][j+1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  return count;
-}
-
-
-// Because Mountains count diagonal as adjacent (FOR OTHER MOUNTAINS, not rivers)
-// they get their own counting function
-int count_adj_mountains(int i, int j, struct Grid grid)
-{
-  int count = 0;
-
-  // we're not on an edge:
-  if ( (i > 0) && (i < numRows - 1) && (j > 0) && (j < numCols - 1) ) {
-    // Cardinal Diretions:
-    if (grid.grid[i-1][j].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i][j-1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i][j+1].type == LHO_LANDSCAPE) { count++; }
-    // Diagonals:
-    if (grid.grid[i-1][j-1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i-1][j+1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j-1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j+1].type == LHO_LANDSCAPE) { count++; }
-  }
-  if (i == 0 && j > 0 && j < numCols - 1) { // left edge, no corners
-    if (grid.grid[i+1][j].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j+1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j-1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  if ( (i == numRows - 1) && j > 0 && j < numCols - 1) { // right edge, no corners
-    if (grid.grid[i-1][j].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i-1][j-1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i-1][j+1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  if (j == 0 && i > 0 && i < numRows - 1) { // Bottom, no corners
-    if (grid.grid[i][j+1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i-1][j+1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j+1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  if ( (j == numCols - 1) && i > 0 && i < numRows - 1) { // top, no corners
-    if (grid.grid[i][j-1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i-1][j-1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j-1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  // Now do corners:
-  if ( i == 0 && j == 0) { // top left
-    if (grid.grid[i][j+1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j+1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  if ( i == 0 && (j == numCols - 1)) { // top right
-    if (grid.grid[i][j-1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i+1][j-1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  if ( (i == numRows - 1) && j == 0) { // bot left
-    if (grid.grid[i][j+1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i-1][j].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i-1][j+1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  if ( (i == numRows - 1) && (j == numCols - 1) ) { // bot right
-    if (grid.grid[i][j-1].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i-1][j].type == LHO_LANDSCAPE) { count++; }
-    if (grid.grid[i-1][j-1].type == LHO_LANDSCAPE) { count++; }
-  }
-
-  return count;
-}
-
-
 // Function to check if a location is already occupied
 // returns false if occupied, true if unoccupied
 bool chk_loc(int linIndex, struct Grid grid)
@@ -335,22 +191,6 @@ bool chk_loc(int linIndex, struct Grid grid)
   return true;
 }
 
-// Function to get valid river locations (in linear index):
-// returns list of indices -- negative numbers indicate a given location is
-// occupied already by something
-void valid_river_locs(struct Grid grid, int locs[4]) // alawys of length 4
-{
-  get_adj_locs(grid.river.headLoc, locs); // one is always occupied by previous head
-  int i;
-
-  for (i = 0; i < 4; i++) {
-    if ( !chk_loc(locs[i], grid) ) {
-      locs[i] = -1; // this space is occupied
-    }
-  }
-
-  return;
-}
 
 // Function to add a landscape tile at a given linear index
 // if index is < 0, we want a random location for the first tile
@@ -369,6 +209,24 @@ bool add_land(int linIndex, struct Grid *grid)
     grid->numFilledTiles++;
     if (grid->numFilledTiles == grid->maxTiles) {
       grid->full = true;
+    }
+
+    // Increase nearby land counts::
+    int i = idx[0], j = idx[1];
+    // Increment river adjacency counts:
+    if (i > 0) {
+      grid->grid[i-1][j].numAdjLands++;
+    }
+
+    if (i < numRows - 1) {
+      grid->grid[i+1][j].numAdjLands++;
+    }
+    if (j > 0) {
+      grid->grid[i][j-1].numAdjLands++;
+    }
+
+    if (j < numCols - 1) {
+      grid->grid[i][j+1].numAdjLands++;
     }
     return true;
   }
@@ -423,6 +281,24 @@ bool add_river(int linIndex, struct Grid *grid)
       grid->full = true;
     }
 
+    int i = idx[0], j = idx[1];
+    // Increment river adjacency counts:
+    if (i > 0) {
+      grid->grid[i-1][j].numAdjRivers++;
+    }
+
+    if (i < numRows - 1) {
+      grid->grid[i+1][j].numAdjRivers++;
+    }
+    if (j > 0) {
+      grid->grid[i][j-1].numAdjRivers++;
+    }
+
+    if (j < numCols - 1) {
+      grid->grid[i][j+1].numAdjRivers++;
+    }
+
+
     return true;
   }
 
@@ -440,7 +316,7 @@ void remove_terrain(int linIndex, struct Grid *grid)
   get_idx(linIndex, idx);
   oldType = grid->grid[idx[0]][idx[1]].type;
   grid->grid[idx[0]][idx[1]].type = LHO_EMPTY;
-  if (oldType > -1) {
+  if (oldType > LHO_EMPTY) {
     grid->numFilledTiles--; // decrement counter of filled tiles
   }
 
@@ -450,6 +326,42 @@ void remove_terrain(int linIndex, struct Grid *grid)
     grid->river.headLoc = grid->river.oldHeadLoc;
     if (grid->river.headLoc == -1) {
       grid->river.newRiver = true;
+    }
+  }
+
+  // if we removed a river, decrement river counts:
+  if (oldType == LHO_RIVER) {
+    int i = idx[0], j = idx[1];
+    if (i > 0) {
+      grid->grid[i-1][j].numAdjRivers--;
+    }
+
+    if (i < numRows - 1) {
+      grid->grid[i+1][j].numAdjRivers--;
+    }
+    if (j > 0) {
+      grid->grid[i][j-1].numAdjRivers--;
+    }
+
+    if (j < numCols - 1) {
+      grid->grid[i][j+1].numAdjRivers--;
+    }
+  } else if (oldType == LHO_LANDSCAPE) {
+    // Increase nearby land counts:
+    int i = idx[0], j = idx[1];
+    if (i > 0) {
+      grid->grid[i-1][j].numAdjLands--;
+    }
+
+    if (i < numRows - 1) {
+      grid->grid[i+1][j].numAdjLands--;
+    }
+    if (j > 0) {
+      grid->grid[i][j-1].numAdjLands--;
+    }
+
+    if (j < numCols - 1) {
+      grid->grid[i][j+1].numAdjLands--;
     }
   }
 
@@ -466,7 +378,7 @@ int val_calc_meadow_thicket(struct Grid grid)
   for (i = 0; i < numRows; i++) {
     for (j = 0; j < numCols; j++) {
       if (grid.grid[i][j].type == LHO_LANDSCAPE) {
-        numRivers = count_adj_rivers(i, j, grid);
+        numRivers = grid.grid[i][j].numAdjRivers;
         if (numRivers == 0) {
           val += landValue;
         } else {
@@ -489,8 +401,8 @@ int val_calc_suburb(struct Grid grid)
   for (i = 0; i < numRows; i++) {
     for (j = 0; j < numCols; j++) {
       if (grid.grid[i][j].type == LHO_LANDSCAPE) {
-        numRivers = count_adj_rivers(i, j, grid);
-        numSuburbs = count_adj_lands(i, j, grid);
+        numRivers = grid.grid[i][j].numAdjRivers;
+        numSuburbs = grid.grid[i][j].numAdjLands;
         if ( numSuburbs == 4 ) {
           val += 2*landValue;
         } else if (numRivers != 0) {
@@ -515,8 +427,8 @@ int val_calc_mountain(struct Grid grid)
   for (i = 0; i < numRows; i++) {
     for (j = 0; j < numCols; j++) {
       if (grid.grid[i][j].type == LHO_LANDSCAPE) {
-        numRivers = count_adj_rivers(i, j, grid);
-        numMountains = count_adj_lands(i, j, grid);
+        numRivers = grid.grid[i][j].numAdjRivers;
+        numMountains = grid.grid[i][j].numAdjLands;
         val += numMountains * landValue;
         val += numMountains * numRivers * landValue;
       }
@@ -795,21 +707,15 @@ int main()
   int land;
 
   // Get input for optimization
-  /*printf(" Enter information about the grid to optimize...\n\n How many rows?\n  ");
+  printf(" Enter information about the grid to optimize...\n\n How many rows?\n  ");
   scanf("%d", &rows);
   printf(" How many columns?\n  ");
   scanf("%d", &cols);
   printf(" What type of landscape tile?\n (0 = meadow, 1 = thicket, 2 = mountain, 3 = suburb):\n  ");
-  scanf("%d", &land);*/
-
-  rows = 3;
-  cols = 3;
-  land = 1;
+  scanf("%d", &land);
 
   init_landscape(land);
 
-  /*rows = 3;
-  cols = 3;*/
 
   numRows = rows;
   numCols = cols;
@@ -818,7 +724,7 @@ int main()
   // allocate memory for our grid
   struct Grid grid;
   allocate_grid(&grid);
-  //heuristic_grid(&grid);
+
   printf("\n starting recursion...\n");
   recurse_grid(&grid);
   print_grid(grid);
